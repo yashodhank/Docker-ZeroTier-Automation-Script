@@ -11,7 +11,6 @@ BLUE = "\033[94m"
 YELLOW = "\033[93m"
 ENDC = "\033[0m"
 
-DOCKER_CONTAINER_NAME = "zerotier"  # Update if your ZeroTier container has a different name
 DEFAULT_ZT_PORT = 9993  # ZeroTier default port for binding
 
 def print_step(step_name, step_desc):
@@ -78,17 +77,38 @@ def check_zt_cli_installed():
         print_error("zerotier-cli is not installed or not in the system PATH.")
         return False
 
-def check_zt_in_docker():
-    """Check if ZeroTier is running inside a Docker container."""
-    print_info("Checking if ZeroTier is running inside a Docker container...")
-    zt_container_id = run_command(f"docker ps -q -f name={DOCKER_CONTAINER_NAME}", capture_output=True)
+def find_zerotier_container():
+    """Dynamically find the ZeroTier container by inspecting Docker containers."""
+    print_info("Looking for a ZeroTier container...")
     
-    if zt_container_id:
-        print_success(f"ZeroTier is running inside the Docker container: {DOCKER_CONTAINER_NAME}")
-        return True
-    else:
-        print_error("ZeroTier is not running inside the Docker container.")
-        return False
+    # Step 1: List all running containers
+    docker_ps_output = run_command("docker ps --format '{{.ID}} {{.Image}} {{.Names}}'", capture_output=True)
+    
+    if not docker_ps_output:
+        print_error("No Docker containers are currently running.")
+        return None
+    
+    containers = docker_ps_output.splitlines()
+    
+    # Step 2: Look for containers using the ZeroTier image or running on port 9993
+    for container in containers:
+        container_id, image_name, container_name = container.split()
+        
+        # Step 3: Check if container has ZeroTier running (check open ports)
+        print_info(f"Checking container {container_name} for ZeroTier service on port {DEFAULT_ZT_PORT}...")
+        
+        # Try running lsof to see if port 9993 is exposed inside the container
+        port_check = run_command(f"docker exec {container_name} lsof -i :{DEFAULT_ZT_PORT}", capture_output=True)
+        
+        if port_check:
+            print_success(f"Found ZeroTier container: {container_name} (ID: {container_id})")
+            return container_name
+        else:
+            # Handle permission or execution issues gracefully
+            print_error(f"Failed to check port usage in container '{container_name}'. Skipping this container.")
+    
+    print_error("No ZeroTier container found. Ensure the ZeroTier container is running and exposing port 9993.")
+    return None
 
 def detect_zt_environment(zt_network_id):
     """Determine if ZeroTier is running on the host or inside Docker, based on the port usage and CLI availability."""
@@ -100,9 +120,10 @@ def detect_zt_environment(zt_network_id):
         if check_zt_running_on_host() and check_zt_cli_installed():
             return "host"
         
-        # Step 2b: If not on the host, check for ZeroTier in Docker
-        if check_zt_in_docker():
-            return "docker"
+        # Step 2b: Find the ZeroTier container dynamically
+        container_name = find_zerotier_container()
+        if container_name:
+            return container_name
         
         # If neither host nor Docker has ZeroTier properly set up
         print_error("ZeroTier is not fully configured on the host or Docker, even though the port is in use.")
@@ -114,8 +135,8 @@ def detect_zt_environment(zt_network_id):
 
 def zt_exec(command, env, dry_run=False, capture_output=False):
     """Executes ZeroTier commands either on the host or in a Docker container based on the environment."""
-    if env == "docker":
-        full_command = f"docker exec {DOCKER_CONTAINER_NAME} zerotier-cli {command}"
+    if env != "host":
+        full_command = f"docker exec {env} zerotier-cli {command}"
     else:
         full_command = f"zerotier-cli {command}"
 
@@ -211,7 +232,7 @@ def main():
     # Step 4: Join the ZeroTier network (if not already joined)
     join_zt_network(zt_network_id, env, dry_run)
 
-    # Step 5: Detect Docker networks (if needed for routing)
+    # Step 5: Detect Docker Networks (if needed for routing)
     detect_docker_networks()
 
     print_success("All tasks completed successfully! Your Docker containers or host are now accessible over the ZeroTier network.")
