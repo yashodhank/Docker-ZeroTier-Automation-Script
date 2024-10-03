@@ -93,19 +93,30 @@ def find_zerotier_container():
     # Step 2: Look for containers using the ZeroTier image or running on port 9993
     for container in containers:
         container_id, image_name, container_name = container.split()
+
+        # Step 3: Filter containers with "zerotier" in the image name for early detection
+        if "zerotier" in image_name.lower():
+            print_info(f"Container '{container_name}' appears to be a ZeroTier container (image: {image_name}).")
+            return container_name
         
-        # Step 3: Check if container has ZeroTier running (check open ports)
+        # Step 4: If no match by image name, check if port 9993 is open in the container
         print_info(f"Checking container {container_name} for ZeroTier service on port {DEFAULT_ZT_PORT}...")
-        
-        # Try running lsof to see if port 9993 is exposed inside the container
         port_check = run_command(f"docker exec {container_name} lsof -i :{DEFAULT_ZT_PORT}", capture_output=True)
         
         if port_check:
             print_success(f"Found ZeroTier container: {container_name} (ID: {container_id})")
             return container_name
         else:
-            # Handle permission or execution issues gracefully
-            print_error(f"Failed to check port usage in container '{container_name}'. Skipping this container.")
+            # Advanced: Check running processes for 'zerotier-one'
+            print_info(f"Checking running processes in {container_name} for 'zerotier-one'...")
+            process_check = run_command(f"docker exec {container_name} ps aux | grep zerotier-one", capture_output=True)
+            
+            # Ensure process_check is not None before iterating
+            if process_check and "zerotier-one" in process_check:
+                print_success(f"Found ZeroTier container: {container_name} (running 'zerotier-one' process)")
+                return container_name
+            else:
+                print_error(f"ZeroTier service not found in container '{container_name}'. Skipping this container.")
     
     print_error("No ZeroTier container found. Ensure the ZeroTier container is running and exposing port 9993.")
     return None
