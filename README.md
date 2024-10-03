@@ -190,7 +190,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 This script is designed to save you time and effort when configuring ZeroTier and Docker networks. Whether you're running a small-scale home lab or managing a large cloud infrastructure, this tool helps ensure that your containers are always connected and accessible over your ZeroTier network without unnecessary complexity.
 
 Feel free to reach out with any questions or suggestions!
-
---- 
-
-Let me know if any further adjustments are needed!
